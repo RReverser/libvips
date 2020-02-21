@@ -436,7 +436,6 @@ vips_init( const char *argv0 )
 	extern GType vips_system_get_type( void );
 	extern GType write_thread_state_get_type( void );
 	extern GType sink_memory_thread_state_get_type( void ); 
-	extern GType render_thread_state_get_type( void ); 
 	extern GType vips_source_get_type( void ); 
 	extern GType vips_source_custom_get_type( void ); 
 	extern GType vips_target_get_type( void ); 
@@ -564,7 +563,6 @@ vips_init( const char *argv0 )
 	(void) vips_region_get_type();
 	(void) write_thread_state_get_type();
 	(void) sink_memory_thread_state_get_type(); 
-	(void) render_thread_state_get_type(); 
 	(void) vips_source_get_type(); 
 	(void) vips_source_custom_get_type(); 
 	(void) vips_target_get_type(); 
@@ -751,7 +749,6 @@ vips_shutdown( void )
 		vips__thread_gate_stop( "init: main" ); 
 }
 
-	vips__render_shutdown();
 	vips_thread_shutdown();
 	vips__thread_profile_stop();
 	vips__threadpool_shutdown();
