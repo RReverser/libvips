@@ -108,7 +108,6 @@
 #include <vips/vips.h>
 #include <vips/thread.h>
 #include <vips/internal.h>
-#include <vips/vector.h>
 
 #if ENABLE_DEPRECATED
 #include <vips/vips7compat.h>
@@ -639,10 +638,6 @@ vips_init( const char *argv0 )
 #endif /*ENABLE_DEPRECATED*/
 #endif /*ENABLE_MODULES*/
 
-	/* Get the run-time compiler going.
-	 */
-	vips_vector_init();
-
 #ifdef HAVE_GSF
 	/* Use this for structured file write.
 	 */
@@ -904,9 +899,6 @@ static GOptionEntry option_entries[] = {
 	{ "vips-disc-threshold", 0, 0, 
 		G_OPTION_ARG_STRING, &vips__disc_threshold, 
 		N_( "images larger than N are decompressed to disc" ), "N" },
-	{ "vips-novector", 0, G_OPTION_FLAG_REVERSE, 
-		G_OPTION_ARG_NONE, &vips__vector_enabled, 
-		N_( "disable vectorised versions of operations" ), NULL },
 	{ "vips-cache-max", 0, 0, 
 		G_OPTION_ARG_CALLBACK, (gpointer) &vips_cache_max_cb,
 		N_( "cache at most N operations" ), "N" },

@@ -39,7 +39,6 @@ libiofuncs_la_SOURCES = \
 	init.c \
 	buf.c \
 	window.c \
-	vector.c \
 	system.c \
 	buffer.c 
 

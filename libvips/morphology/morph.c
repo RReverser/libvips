@@ -65,30 +65,10 @@
 #include <limits.h>
 
 #include <vips/vips.h>
-#include <vips/vector.h>
 #include <vips/debug.h>
 #include <vips/internal.h>
 
 #include "pmorphology.h"
-
-/* We can't run more than this many passes. Larger than this and we
- * fall back to C.
- * TODO: Could this be raised to 20? Just like convi.
- */
-#define MAX_PASS (10)
-
-/* A pass with a vector. 
- */
-typedef struct {
-	int first;		/* The index of the first mask coff we use */
-	int last;		/* The index of the last mask coff we use */
-
-	int r;			/* Set previous result in this var */
-
-	/* The code we generate for this section of this mask. 
-	 */
-	VipsVector *vector;
-} Pass;
 
 /** 
  * VipsOperationMorphology:
@@ -114,11 +94,6 @@ typedef struct {
 	int n_point;		/* w * h for our matrix */
 
 	int *coeff;			/* Mask coefficients */
-
-	/* The passes we generate for this mask.
-	 */
-	int n_pass;	
-	Pass pass[MAX_PASS];
 } VipsMorph;
 
 typedef VipsMorphologyClass VipsMorphClass;
@@ -137,39 +112,7 @@ typedef struct {
 	int cs;			/* ... and number we check for clear */
 
 	int last_bpl;		/* Avoid recalcing offsets, if we can */
-
-	/* In vector mode we need a pair of intermediate buffers to keep the 
-	 * results of each pass in.
-	 */
-	void *t1;
-	void *t2;
 } VipsMorphSequence;
-
-static void
-vips_morph_compile_free( VipsMorph *morph )
-{
-	int i;
-
-	for( i = 0; i < morph->n_pass; i++ )
-		VIPS_FREEF( vips_vector_free, morph->pass[i].vector );
-	morph->n_pass = 0;
-}
-
-static void
-vips_morph_dispose( GObject *gobject )
-{
-	VipsMorph *morph = (VipsMorph *) gobject;
-
-#ifdef DEBUG
-	printf( "vips_morph_dispose: " );
-	vips_object_print_name( VIPS_OBJECT( gobject ) );
-	printf( "\n" );
-#endif /*DEBUG*/
-
-	vips_morph_compile_free( morph ); 
-
-	G_OBJECT_CLASS( vips_morph_parent_class )->dispose( gobject );
-}
 
 /* Free a sequence value.
  */
@@ -179,8 +122,6 @@ vips_morph_stop( void *vseq, void *a, void *b )
 	VipsMorphSequence *seq = (VipsMorphSequence *) vseq;
 
 	VIPS_UNREF( seq->ir );
-	VIPS_FREE( seq->t1 );
-	VIPS_FREE( seq->t2 );
 
 	return( 0 );
 }
@@ -207,13 +148,9 @@ vips_morph_start( VipsImage *out, void *a, void *b )
 	seq->coff = NULL;
 	seq->cs = 0;
 	seq->last_bpl = -1;
-	seq->t1 = NULL;
-	seq->t2 = NULL;
 
 	seq->ir = vips_region_new( in );
 
-	/* C mode.
-	 */
 	seq->soff = VIPS_ARRAY( out, morph->n_point, int );
 	seq->coff = VIPS_ARRAY( out, morph->n_point, int );
 
@@ -223,182 +160,7 @@ vips_morph_start( VipsImage *out, void *a, void *b )
 		return( NULL );
 	}
 
-	/* Vector mode.
-	 */
-	if( morph->n_pass ) {
-		seq->t1 = VIPS_ARRAY( NULL, 
-			VIPS_IMAGE_N_ELEMENTS( in ), VipsPel );
-		seq->t2 = VIPS_ARRAY( NULL, 
-			VIPS_IMAGE_N_ELEMENTS( in ), VipsPel );
-
-		if( !seq->t1 || 
-			!seq->t2 ) {
-			vips_morph_stop( seq, in, morph );
-			return( NULL );
-		}
-	}
-
 	return( seq );
-}
-
-#define TEMP( N, S ) vips_vector_temporary( v, N, S )
-#define SCANLINE( N, P, S ) vips_vector_source_scanline( v, N, P, S )
-#define CONST( N, V, S ) vips_vector_constant( v, N, V, S )
-#define ASM2( OP, A, B ) vips_vector_asm2( v, OP, A, B )
-#define ASM3( OP, A, B, C ) vips_vector_asm3( v, OP, A, B, C )
-
-/* Generate code for a section of the mask. first is the index we start
- * at, we set last to the index of the last one we use before we run 
- * out of intermediates / constants / parameters / sources or mask
- * coefficients.
- *
- * 0 for success, -1 on error.
- */
-static int
-vips_morph_compile_section( VipsMorph *morph, Pass *pass, gboolean first_pass )
-{
-	VipsMorphology *morphology = (VipsMorphology *) morph;
-	VipsImage *M = morph->M;
-
-	VipsVector *v;
-	char offset[256];
-	char source[256];
-	char zero[256];
-	char one[256];
-	int i;
-
-	pass->vector = v = vips_vector_new( "morph", 1 );
-
-	/* The value we fetch from the image, the accumulated sum.
-	 */
-	TEMP( "value", 1 );
-	TEMP( "sum", 1 );
-
-	CONST( zero, 0, 1 );
-	CONST( one, 255, 1 );
-
-	/* Init the sum. If this is the first pass, it's a constant. If this
-	 * is a later pass, we have to init the sum from the result 
-	 * of the previous pass. 
-	 */
-	if( first_pass ) {
-		if( morph->morph == VIPS_OPERATION_MORPHOLOGY_DILATE )
-			ASM2( "copyb", "sum", zero );
-		else
-			ASM2( "copyb", "sum", one );
-	}
-	else {
-		/* "r" is the result of the previous pass. 
-		 */
-		pass->r = vips_vector_source_name( v, "r", 1 );
-		ASM2( "loadb", "sum", "r" );
-	}
-
-	for( i = pass->first; i < morph->n_point; i++ ) {
-		int x = i % M->Xsize;
-		int y = i / M->Xsize;
-
-		/* Exclude don't-care elements.
-		 */
-		if( morph->coeff[i] == 128 )
-			continue;
-
-		/* The source. sl0 is the first scanline in the mask.
-		 */
-		SCANLINE( source, y, 1 );
-
-		/* The offset, only for non-first-columns though.
-		 */
-		if( x > 0 ) {
-			CONST( offset, morphology->in->Bands * x, 1 );
-			ASM3( "loadoffb", "value", source, offset );
-		}
-		else
-			ASM2( "loadb", "value", source );
-
-		/* Join to our sum. If the mask element is zero, we have to
-		 * add an extra negate.
-		 */
-		if( morph->morph == VIPS_OPERATION_MORPHOLOGY_DILATE ) {
-			if( !morph->coeff[i] ) 
-				ASM3( "xorb", "value", "value", one );
-			ASM3( "orb", "sum", "sum", "value" );
-		}
-		else {
-			if( !morph->coeff[i] ) {
-				/* You'd think we could use andnb, but it
-				 * fails on some machines with some orc
-				 * versions :( 
-				 */
-				ASM3( "xorb", "value", "value", one );
-				ASM3( "andb", "sum", "sum", "value" );
-			}
-			else
-				ASM3( "andb", "sum", "sum", "value" );
-		}
-
-		if( vips_vector_full( v ) )
-			break;
-	}
-
-	pass->last = i;
-
-	ASM2( "copyb", "d1", "sum" );
-
-	if( !vips_vector_compile( v ) ) 
-		return( -1 );
-
-#ifdef DEBUG
-	printf( "done matrix coeffs %d to %d\n", pass->first, pass->last );
-	vips_vector_print( v );
-#endif /*DEBUG*/
-
-	return( 0 );
-}
-
-/* Generate a set of passes.
- */
-static int
-vips_morph_compile( VipsMorph *morph )
-{
-	int i;
-	Pass *pass;
-
-#ifdef DEBUG
-	printf( "vips_morph_compile: generating vector code\n" );
-#endif /*DEBUG*/
-
-	/* Generate passes until we've used up the whole mask.
-	 */
-	for( i = 0;;) {
-		/* Skip any don't-care coefficients at the start of the mask 
-		 * region.
-		 */
-		for( ; i < morph->n_point && morph->coeff[i] == 128; i++ )
-			;
-		if( i == morph->n_point )
-			break;
-
-		/* Allocate space for another pass.
-		 */
-		if( morph->n_pass == MAX_PASS ) 
-			return( -1 );
-		pass = &morph->pass[morph->n_pass];
-		morph->n_pass += 1;
-
-		pass->first = i;
-		pass->last = i;
-		pass->r = -1;
-
-		if( vips_morph_compile_section( morph, pass, morph->n_pass == 1 ) )
-			return( -1 );
-		i = pass->last + 1;
-
-		if( i >= morph->n_point )
-			break;
-	}
-
-	return( 0 );
 }
 
 /* Dilate!
@@ -620,73 +382,6 @@ vips_erode_gen( VipsRegion *or,
 	return( 0 );
 }
 
-/* The vector codepath.
- */
-static int
-vips_morph_gen_vector( VipsRegion *or, 
-	void *vseq, void *a, void *b, gboolean *stop )
-{
-	VipsMorphSequence *seq = (VipsMorphSequence *) vseq;
-	VipsMorph *morph = (VipsMorph *) b;
-	VipsImage *M = morph->M;
-	VipsRegion *ir = seq->ir;
-	VipsRect *r = &or->valid;
-	int sz = VIPS_REGION_N_ELEMENTS( or );
-
-	VipsRect s;
-	int y, j;
-	VipsExecutor executor[MAX_PASS];
-
-	/* Prepare the section of the input image we need. A little larger
-	 * than the section of the output image we are producing.
-	 */
-	s = *r;
-	s.width += M->Xsize - 1;
-	s.height += M->Ysize - 1;
-	if( vips_region_prepare( ir, &s ) )
-		return( -1 );
-
-#ifdef DEBUG_VERBOSE
-	printf( "vips_morph_gen_vector: preparing %dx%d@%dx%d pixels\n", 
-		s.width, s.height, s.left, s.top );
-#endif /*DEBUG_VERBOSE*/
-
-	for( j = 0; j < morph->n_pass; j++ ) 
-		vips_executor_set_program( &executor[j], 
-			morph->pass[j].vector, sz );
-
-	VIPS_GATE_START( "vips_morph_gen_vector: work" ); 
-
-	for( y = 0; y < r->height; y++ ) { 
-		for( j = 0; j < morph->n_pass; j++ ) {
-			void *d;
-
-			/* The last pass goes to the output image,
-			 * intermediate passes go to t2.
-			 */
-			if( j == morph->n_pass - 1 )
-				d = VIPS_REGION_ADDR( or, r->left, r->top + y );
-			else 
-				d = seq->t2;
-
-			vips_executor_set_scanline( &executor[j], 
-				ir, r->left, r->top + y );
-			vips_executor_set_array( &executor[j],
-				morph->pass[j].r, seq->t1 );
-			vips_executor_set_destination( &executor[j], d );
-			vips_executor_run( &executor[j] );
-
-			VIPS_SWAP( void *, seq->t1, seq->t2 );
-		}
-	}
-
-	VIPS_GATE_STOP( "vips_morph_gen_vector: work" ); 
-
-	VIPS_COUNT_PIXELS( or, "vips_morph_gen_vector" ); 
-
-	return( 0 );
-}
-
 static int
 vips_morph_build( VipsObject *object )
 {
@@ -759,17 +454,6 @@ vips_morph_build( VipsObject *object )
 	generate = morph->morph == VIPS_OPERATION_MORPHOLOGY_DILATE
 		? vips_dilate_gen : vips_erode_gen;
 
-	/* Generate code for this mask / image, if possible.
-	 */
-	if( vips_vector_isenabled() ) {
-		if( !vips_morph_compile( morph ) ) {
-			generate = vips_morph_gen_vector;
-			g_info( "morph: using vector path" ); 
-		}
-		else
-			vips_morph_compile_free( morph );
-	}
-
 	g_object_set( morph, "out", vips_image_new(), NULL ); 
 	if( vips_image_pipelinev( morph->out, 
 		VIPS_DEMAND_STYLE_SMALLTILE, in, NULL ) )
@@ -801,8 +485,6 @@ vips_morph_class_init( VipsMorphClass *class )
 
 	gobject_class->set_property = vips_object_set_property;
 	gobject_class->get_property = vips_object_get_property;
-
-	gobject_class->dispose = vips_morph_dispose;
 
 	object_class->nickname = "morph";
 	object_class->description = _( "morphology operation" );

@@ -43,7 +43,6 @@ pkginclude_HEADERS = \
 	thread.h \
 	transform.h \
 	util.h \
-	vector.h \
 	vips7compat.h \
 	vips.h
 

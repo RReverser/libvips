@@ -13,7 +13,6 @@ public_other_headers = files(
     'threadpool.h',
     'transform.h',
     'util.h',
-    'vector.h',
 )
 
 public_deprecated_headers = files(

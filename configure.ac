@@ -731,45 +731,6 @@ AS_IF([test x"$with_magick_module" = x"yes"],
    VIPS_LIBS="$VIPS_LIBS $MAGICK_LIBS"])
 AM_CONDITIONAL(MAGICK_MODULE, [test x"$with_magick_module" = x"yes"])
 
-# orc
-AC_ARG_WITH([orc], 
-  AS_HELP_STRING([--without-orc], [build without orc (default: test)]))
-
-if test x"$with_orc" != x"no"; then
-  # we use loadpw etc.
-  PKG_CHECK_MODULES(ORC, orc-0.4 >= 0.4.11,
-    [AC_DEFINE(HAVE_ORC,1,[define if you have orc-0.4.11 or later installed.])
-     with_orc=yes
-     PACKAGES_USED="$PACKAGES_USED orc-0.4"
-     save_LIBS="$LIBS"
-     LIBS="$LIBS $ORC_LIBS"
-     AC_CHECK_FUNCS(orc_program_get_error,
-       AC_DEFINE(HAVE_ORC_PROGRAM_GET_ERROR,1,
-              [define if your orc has orc_program_get_error.]))
-     LIBS="$save_LIBS"
-    ],
-    [AC_MSG_WARN([orc-0.4.11 or later not found; disabling orc support])
-     with_orc=no
-    ]
-  )
-fi
-
-# orc 0.4.30+ works with cf-protection, but 0.4.30 has a bug with multiple
-# definitions of OrcTargetPowerPCFlags, so insist on 0.4.31
-if test x"$with_orc" = x"yes"; then
-  PKG_CHECK_MODULES(ORC_CF_PROTECTION, orc-0.4 >= 0.4.31,
-    [AC_DEFINE(HAVE_ORC_CF_PROTECTION,1,
-               [define if your orc works with cf-protection.]
-     )
-    ],
-    [:
-    ]
-  )
-fi
-
-VIPS_CFLAGS="$VIPS_CFLAGS $ORC_CFLAGS"
-VIPS_LIBS="$VIPS_LIBS $ORC_LIBS"
-
 # lcms ... refuse to use lcms1
 AC_ARG_WITH([lcms], 
   AS_HELP_STRING([--without-lcms], [build without lcms (default: test)]))
@@ -1555,7 +1516,6 @@ enable debug: $enable_debug, \
 enable deprecated library components: $enable_deprecated, \
 enable modules: $gmodule_supported_flag, \
 use fftw3 for FFT: $with_fftw, \
-accelerate loops with orc: $with_orc, \
 ICC profile support with lcms: $with_lcms, \
 zlib: $with_zlib, \
 text rendering with pangocairo: $with_pangocairo, \
@@ -1663,8 +1623,6 @@ GIF load:                               $with_nsgif
 
 ## Optional dependencies
 use fftw3 for FFT:                      $with_fftw
-accelerate loops with orc:              $with_orc
- (requires orc-0.4.11 or later)
 ICC profile support with lcms:          $with_lcms
 zlib:                                   $with_zlib
 text rendering with pangocairo:         $with_pangocairo

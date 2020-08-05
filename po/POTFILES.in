@@ -46,7 +46,6 @@ libvips/include/vips/threadpool.h
 libvips/include/vips/transform.h
 libvips/include/vips/type.h
 libvips/include/vips/util.h
-libvips/include/vips/vector.h
 libvips/include/vips/video.h
 libvips/include/vips/vips7compat.h
 libvips/include/vips/vips.h
@@ -345,7 +344,6 @@ libvips/iofuncs/targetcustom.c
 libvips/iofuncs/threadpool.c
 libvips/iofuncs/type.c
 libvips/iofuncs/util.c
-libvips/iofuncs/vector.c
 libvips/iofuncs/vips.c
 libvips/iofuncs/vipsmarshal.c
 libvips/iofuncs/window.c
