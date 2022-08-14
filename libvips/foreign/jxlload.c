@@ -157,7 +157,7 @@ vips_foreign_load_jxl_build( VipsObject *object )
 #endif /*DEBUG*/
 
 	jxl->runner = JxlThreadParallelRunnerCreate( NULL, 
-		vips_concurrency_get() );
+		0 );
 
 	if( VIPS_OBJECT_CLASS( vips_foreign_load_jxl_parent_class )->
 		build( object ) )

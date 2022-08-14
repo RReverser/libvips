@@ -257,7 +257,7 @@ vips_foreign_save_jxl_build( VipsObject *object )
 		jxl->lossless = TRUE;
 
 	jxl->runner = JxlThreadParallelRunnerCreate( NULL, 
-		vips_concurrency_get() );
+		0 );
 	jxl->encoder = JxlEncoderCreate( NULL );
 
 	if( JxlEncoderSetParallelRunner( jxl->encoder, 
