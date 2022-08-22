@@ -101,6 +101,7 @@ if magick_module
         name_prefix: '',
         name_suffix: module_suffix,
         dependencies: [libvips_dep, magick_dep],
+        gnu_symbol_visibility: 'hidden',
         install: true,
         install_dir: module_dir
     )
@@ -115,6 +116,7 @@ if libjxl_module
         name_prefix: '',
         name_suffix: module_suffix,
         dependencies: [libvips_dep, libjxl_dep, libjxl_threads_dep],
+        gnu_symbol_visibility: 'hidden',
         install: true,
         install_dir: module_dir
     )
@@ -129,6 +131,7 @@ if libheif_module
         name_prefix: '',
         name_suffix: module_suffix,
         dependencies: [libvips_dep, libheif_dep],
+        gnu_symbol_visibility: 'hidden',
         install: true,
         install_dir: module_dir
     )
@@ -143,6 +146,7 @@ if libpoppler_module
         name_prefix: '',
         name_suffix: module_suffix,
         dependencies: [libvips_dep, libpoppler_dep, cairo_dep],
+        gnu_symbol_visibility: 'hidden',
         install: true,
         install_dir: module_dir
     )
@@ -157,6 +161,7 @@ if openslide_module
         name_prefix: '',
         name_suffix: module_suffix,
         dependencies: [libvips_dep, openslide_dep],
+        gnu_symbol_visibility: 'hidden',
         install: true,
         install_dir: module_dir
     )
