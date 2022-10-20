@@ -413,21 +413,6 @@ if libopenjp2_dep.found()
     cfg_var.set('HAVE_LIBOPENJP2', '1')
 endif
 
-# we use loadpw etc.
-orc_dep = dependency('orc-0.4', version: '>=0.4.11', required: get_option('orc'))
-if orc_dep.found()
-    libvips_deps += orc_dep
-    cfg_var.set('HAVE_ORC', '1')
-    # orc 0.4.30+ works with cf-protection, but 0.4.30 has a bug with multiple
-    # definitions of OrcTargetPowerPCFlags, so insist on 0.4.31
-    if orc_dep.version().version_compare('>=0.4.31')
-        cfg_var.set('HAVE_ORC_CF_PROTECTION', '1')
-    endif
-    if cc.has_function('orc_program_get_error', prefix: '#include <orc/orc.h>', dependencies: orc_dep)
-        cfg_var.set('HAVE_ORC_PROGRAM_GET_ERROR', '1')
-    endif
-endif
-
 # pick 4200 as the starting version number ... no reason, really, it'd
 # probably work with much older versions
 pdfium_dep = dependency('pdfium', version: '>=4200', required: get_option('pdfium'))
@@ -588,20 +573,6 @@ gettext_domain = 'vips@0@.@1@'.format(version_major, version_minor)
 cfg_var.set_quoted('GETTEXT_PACKAGE', gettext_domain)
 cfg_var.set_quoted('VIPS_PREFIX', prefix_dir)
 cfg_var.set_quoted('VIPS_LIBDIR', lib_dir)
-if cc.has_function('ngettext')
-    cfg_var.set('ENABLE_NLS', 1)
-    have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset')
-else
-    libintl_dep = cc.find_library('intl', required: false)
-    if libintl_dep.found()
-        libvips_deps += libintl_dep
-        cfg_var.set('ENABLE_NLS', 1)
-        have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset', prefix: '#include <libintl.h>', dependencies: libintl_dep)
-    else
-        have_bind_textdomain_codeset = false
-    endif
-endif
-cfg_var.set('HAVE_BIND_TEXTDOMAIN_CODESET', have_bind_textdomain_codeset)
 
 if host_os == 'darwin'
     profile_dir = '/Library/ColorSync/Profiles'
@@ -643,7 +614,6 @@ build_summary = {
     },
   'Optional external packages':
     {'use fftw for FFTs': [fftw_dep.found()],
-     'accelerate loops with ORC': [orc_dep.found()],
      'ICC profile support with lcms': [lcms_dep.found()],
      'zlib': [zlib_dep.found()],
      'text rendering with pangocairo': [pangocairo_dep.found()],
@@ -686,8 +656,3 @@ if get_option('gtk_doc')
     subdir('doc')
 endif
 subdir('cplusplus')
-subdir('man')
-subdir('po')
-subdir('tools')
-subdir('test')
-subdir('fuzz')

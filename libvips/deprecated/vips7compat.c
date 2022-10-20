@@ -49,7 +49,6 @@
 #include <vips/vips7compat.h>
 #include <vips/internal.h>
 #include <vips/debug.h>
-#include <vips/vector.h>
 #include <vips/transform.h>
 
 /* Split filename into name / mode components. name and mode should both be
@@ -959,47 +958,6 @@ im__bandalike( const char *domain,
 		return( -1 );
 
 	return( 0 );
-}
-
-VipsVector *
-im__init_program( VipsVector *vectors[IM_BANDFMT_LAST], 
-	VipsBandFmt format_table[IM_BANDFMT_LAST], VipsBandFmt fmt )
-{
-	int isize = im__sizeof_bandfmt[fmt];
-	int osize = im__sizeof_bandfmt[format_table[fmt]];
-
-	VipsVector *v;
-
-	v = vips_vector_new( "binary arith", osize );
-
-	vips_vector_source_name( v, "s1", isize );
-	vips_vector_source_name( v, "s2", isize );
-	vips_vector_temporary( v, "t1", osize );
-	vips_vector_temporary( v, "t2", osize );
-
-	vectors[fmt] = v;
-
-	return( v );
-}
-
-void
-im__compile_programs( VipsVector *vectors[IM_BANDFMT_LAST] )
-{
-	int fmt;
-
-	for( fmt = 0; fmt < IM_BANDFMT_LAST; fmt++ ) {
-		if( vectors[fmt] &&
-			!vips_vector_compile( vectors[fmt] ) )
-			IM_FREEF( vips_vector_free, vectors[fmt] );
-	}
-
-#ifdef DEBUG
-	printf( "im__compile_programs: " );
-	for( fmt = 0; fmt < IM_BANDFMT_LAST; fmt++ ) 
-		if( vectors[fmt] )
-			printf( "%s ", im_BandFmt2char( fmt ) );
-	printf( "\n" );
-#endif /*DEBUG*/
 }
 
 int 

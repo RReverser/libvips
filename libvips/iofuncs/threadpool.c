@@ -120,6 +120,11 @@ int vips__thinstrip_height = VIPS__THINSTRIP_HEIGHT;
  */
 int vips__concurrency = 0;
 
+/* The amount of background threads that may run additionally
+ * within the thread pool (see vips_sink_disc).
+ */
+const int vips__bg_threads = 3;
+
 /* Set this GPrivate to indicate that this thread is a worker inside
  * the vips threadpool.
  */
@@ -128,6 +133,11 @@ static GPrivate *is_worker_key = NULL;
 /* Set to stall threads for debugging.
  */
 static gboolean vips__stall = FALSE;
+
+/* Whether the thread pool owns all threads exclusive or shares
+ * them with other thread pools.
+ */
+static gboolean vips__exclusive = TRUE;
 
 /* The thread pool we'll use.
  */
@@ -180,77 +190,6 @@ gboolean
 vips_thread_isworker( void )
 {
 	return( g_private_get( is_worker_key ) != NULL );
-}
-
-typedef struct {
-	const char *domain; 
-	GThreadFunc func; 
-	gpointer data;
-} VipsThreadInfo; 
-
-static void *
-vips_thread_run( gpointer data )
-{
-	VipsThreadInfo *info = (VipsThreadInfo *) data;
-
-	void *result;
-
-	/* Set this to something (anything) to tag this thread as a vips 
-	 * worker.
-	 */
-	g_private_set( is_worker_key, data );
-
-	if( vips__thread_profile ) 
-		vips__thread_profile_attach( info->domain );
-
-	result = info->func( info->data );
-
-	g_free( info ); 
-
-	vips_thread_shutdown();
-
-	return( result ); 
-}
-
-GThread *
-vips_g_thread_new( const char *domain, GThreadFunc func, gpointer data )
-{
-	GThread *thread;
-	VipsThreadInfo *info; 
-	GError *error = NULL;
-
-	info = g_new( VipsThreadInfo, 1 ); 
-	info->domain = domain;
-	info->func = func;
-	info->data = data;
-
-	thread = g_thread_try_new( domain, vips_thread_run, info, &error );
-
-	VIPS_DEBUG_MSG_RED( "vips_g_thread_new: g_thread_create( %s ) = %p\n",
-		domain, thread );
-
-	if( !thread ) {
-		if( error ) 
-			vips_g_error( &error ); 
-		else
-			vips_error( domain, 
-				"%s", _( "unable to create thread" ) );
-	}
-
-	return( thread );
-}
-
-void *
-vips_g_thread_join( GThread *thread )
-{
-	void *result;
-
-	result = g_thread_join( thread );
-
-	VIPS_DEBUG_MSG_RED( "vips_g_thread_join: g_thread_join( %p )\n", 
-		thread );
-
-	return( result ); 
 }
 
 typedef struct {
@@ -430,6 +369,10 @@ vips_concurrency_set( int concurrency )
 	}
 
 	vips__concurrency = concurrency;
+
+	if( vips__exclusive )
+		g_thread_pool_set_max_threads( vips__pool,
+			vips__concurrency + vips__bg_threads, NULL );
 }
 
 /**
@@ -731,19 +674,6 @@ vips_task_free( VipsTask *task )
 	VIPS_FREE( task );
 }
 
-static void *
-vips__thread_once_init( void *data )
-{
-	/* We can have many more than vips__concurrency threads -- each active
-	 * pipeline will make vips__concurrency more, see
-	 * vips_threadpool_run().
-	 */
-	vips__pool = g_thread_pool_new( vips_thread_main_loop, NULL,
-		-1, FALSE, NULL );
-
-	return( NULL );
-}
-
 /**
  * vips__thread_execute:
  * @name: a name for the thread
@@ -760,13 +690,9 @@ vips__thread_once_init( void *data )
 int
 vips__thread_execute( const char *name, GFunc func, gpointer data )
 {
-	static GOnce once = G_ONCE_INIT;
-
 	VipsThreadExec *exec;
 	GError *error = NULL;
 	gboolean result;
-
-	VIPS_ONCE( &once, vips__thread_once_init, NULL );
 
 	exec = g_new( VipsThreadExec, 1 );
 	exec->name = name;
@@ -962,15 +888,15 @@ vips__threadpool_init( void )
 	if( g_getenv( "VIPS_STALL" ) )
 		vips__stall = TRUE;
 
+	if( g_getenv( "VIPS_SHARED_THREADPOOL" ) )
+		vips__exclusive = FALSE;
+
 	if( vips__concurrency == 0 )
 		vips__concurrency = vips__concurrency_get_default();
 
-	/* The threadpool is built in the first vips__thread_execute()
-	 * call, since we want thread creation to happen as late as possible.
-	 *
-	 * Many web platforms start up in a base environment, then fork() for
-	 * each request. We must not make the threadpool before the fork.
-	 */
+	vips__pool = g_thread_pool_new( vips_thread_main_loop, NULL,
+		vips__exclusive ? vips__concurrency + vips__bg_threads : -1,
+		vips__exclusive, NULL );
 
 	VIPS_DEBUG_MSG( "vips__threadpool_init: (%p)\n", vips__pool );
 }

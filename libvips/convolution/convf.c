@@ -78,6 +78,10 @@
 
  */
 
+/* 
+#define DEBUG
+ */
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif /*HAVE_CONFIG_H*/
@@ -294,21 +298,21 @@ vips_convf_build( VipsObject *object )
 	M = convolution->M;
 	coeff = (double *) VIPS_IMAGE_ADDR( M, 0, 0 );
 	ne = M->Xsize * M->Ysize;
-        if( !(convf->coeff = VIPS_ARRAY( object, ne, double )) ||
-        	!(convf->coeff_pos = VIPS_ARRAY( object, ne, int )) )
-                return( -1 );
+	if( !(convf->coeff = VIPS_ARRAY( object, ne, double )) ||
+		!(convf->coeff_pos = VIPS_ARRAY( object, ne, int )) )
+		return( -1 );
 
-        /* Find non-zero mask elements.
-         */
-        for( i = 0; i < ne; i++ )
-                if( coeff[i] ) {
+	/* Find non-zero mask elements.
+	 */
+	for( i = 0; i < ne; i++ )
+		if( coeff[i] ) {
 			convf->coeff[convf->nnz] = coeff[i];
 			convf->coeff_pos[convf->nnz] = i;
 			convf->nnz += 1;
 		}
 
-	/* Was the whole mask zero? We must have at least 1 element in there:
-	 * set it to zero.
+	/* Was the whole mask zero? We must have at least 1 element 
+	 * in there: set it to zero.
 	 */
 	if( convf->nnz == 0 ) {
 		convf->coeff[0] = 0;

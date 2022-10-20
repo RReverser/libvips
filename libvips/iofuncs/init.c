@@ -108,7 +108,6 @@
 #include <vips/vips.h>
 #include <vips/thread.h>
 #include <vips/internal.h>
-#include <vips/vector.h>
 
 #if ENABLE_DEPRECATED
 #include <vips/vips7compat.h>
@@ -312,6 +311,43 @@ vips_load_plugins( const char *fmt, ... )
 
 	return( result );
 }
+
+#ifdef __EMSCRIPTEN__
+extern char **_emscripten_get_dynamic_libraries_js();
+
+static void
+vips_load_modules_wasm()
+{
+	char **libs, **p;
+
+	/* Do nothing if modules aren't supported.
+	 */
+	if( !g_module_supported() )
+		return;
+
+	libs = _emscripten_get_dynamic_libraries_js();
+
+	for( p = libs; *p; p++ ) {
+		GModule *module;
+
+		g_info( "loading \"%s\"", *p );
+
+		module = g_module_open( *p, G_MODULE_BIND_LAZY );
+		if( !module ) {
+			g_warning( _( "unable to load \"%s\" -- %s" ),
+				*p, g_module_error() );
+		}
+		g_free( *p );
+
+		/* Modules will almost certainly create new types, so
+		 * they can't be unloaded.
+		 */
+		g_module_make_resident( module );
+	}
+
+	g_free( libs );
+}
+#endif /*__EMSCRIPTEN__*/
 #endif /*ENABLE_MODULES*/
 
 /* Install this log handler to hide warning messages.
@@ -437,7 +473,6 @@ vips_init( const char *argv0 )
 	extern GType vips_system_get_type( void );
 	extern GType write_thread_state_get_type( void );
 	extern GType sink_memory_thread_state_get_type( void ); 
-	extern GType render_thread_state_get_type( void ); 
 	extern GType vips_source_get_type( void ); 
 	extern GType vips_source_custom_get_type( void ); 
 	extern GType vips_target_get_type( void ); 
@@ -565,7 +600,6 @@ vips_init( const char *argv0 )
 	(void) vips_region_get_type();
 	(void) write_thread_state_get_type();
 	(void) sink_memory_thread_state_get_type(); 
-	(void) render_thread_state_get_type(); 
 	(void) vips_source_get_type(); 
 	(void) vips_source_custom_get_type(); 
 	(void) vips_target_get_type(); 
@@ -603,6 +637,11 @@ vips_init( const char *argv0 )
 	vips_g_input_stream_get_type(); 
 
 #ifdef ENABLE_MODULES
+#ifdef __EMSCRIPTEN__
+	/* Load any vips8 modules from the Module.dynamicLibraries array.
+	 */
+	vips_load_modules_wasm();
+#else /*!__EMSCRIPTEN__*/
 	/* Load any vips8 modules from the vips libdir. Keep going, even if
 	 * some modules fail to load. 
 	 *
@@ -612,6 +651,7 @@ vips_init( const char *argv0 )
 	 */
 	(void) vips_load_plugins( "%s/vips-modules-%d.%d", 
 		libdir, VIPS_MAJOR_VERSION, VIPS_MINOR_VERSION );
+#endif /*__EMSCRIPTEN__*/
 
 #if ENABLE_DEPRECATED
 	/* Load any vips8 plugins from the vips libdir.
@@ -638,10 +678,6 @@ vips_init( const char *argv0 )
 	}
 #endif /*ENABLE_DEPRECATED*/
 #endif /*ENABLE_MODULES*/
-
-	/* Get the run-time compiler going.
-	 */
-	vips_vector_init();
 
 #ifdef HAVE_GSF
 	/* Use this for structured file write.
@@ -756,7 +792,6 @@ vips_shutdown( void )
 		vips__thread_gate_stop( "init: main" ); 
 }
 
-	vips__render_shutdown();
 	vips_thread_shutdown();
 	vips__thread_profile_stop();
 	vips__threadpool_shutdown();
@@ -904,9 +939,6 @@ static GOptionEntry option_entries[] = {
 	{ "vips-disc-threshold", 0, 0, 
 		G_OPTION_ARG_STRING, &vips__disc_threshold, 
 		N_( "images larger than N are decompressed to disc" ), "N" },
-	{ "vips-novector", 0, G_OPTION_FLAG_REVERSE, 
-		G_OPTION_ARG_NONE, &vips__vector_enabled, 
-		N_( "disable vectorised versions of operations" ), NULL },
 	{ "vips-cache-max", 0, 0, 
 		G_OPTION_ARG_CALLBACK, (gpointer) &vips_cache_max_cb,
 		N_( "cache at most N operations" ), "N" },

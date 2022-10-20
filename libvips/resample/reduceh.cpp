@@ -182,7 +182,7 @@ reduceh_unsigned_int_tab( VipsReduceh *reduceh,
 
 	for( int z = 0; z < bands; z++ ) {
 		int sum;
-	       
+
 		sum = reduce_sum<T, int>( in + z, bands, cx, n );
 		sum = unsigned_fixed_round( sum ); 
 		sum = VIPS_CLIP( 0, sum, max_value ); 
@@ -263,8 +263,7 @@ reduceh_signed_int32_tab( VipsReduceh *reduceh,
 		double sum;
 
 		sum = reduce_sum<T, double>( in + z, bands, cx, n );
-		sum = VIPS_CLIP( min_value, sum, max_value ); 
-		out[z] = sum;
+		out[z] = VIPS_CLIP( min_value, sum, max_value );
 	}
 }
 
@@ -291,10 +290,6 @@ reduceh_notab( VipsReduceh *reduceh,
 		out[z] = VIPS_ROUND_UINT( sum );
 	}
 }
-
-/* Tried a vector path (see reducev) but it was slower. The vectors for
- * horizontal reduce are just too small to get a useful speedup.
- */
 
 static int
 vips_reduceh_gen( VipsRegion *out_region, void *seq, 
