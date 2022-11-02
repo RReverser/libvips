@@ -377,6 +377,16 @@ if librsvg_found
     cfg_var.set('HAVE_RSVG', '1')
 endif
 
+# libresvg doesn't ship pkg-config files, so we can't use dependency().
+libresvg_dep = cc.find_library('resvg', has_headers: ['resvg.h'], required: get_option('resvg'))
+libresvg_found = libresvg_dep.found()
+if libresvg_found
+    # It's annoying that I have to spell out the `include_directories` here, but without it Meson can build
+    # but `compile_commands.json` doesn't have the -I$PREFIX/include, making code analysis tools & VSCode fail.
+    libvips_deps += declare_dependency(dependencies: [libresvg_dep], include_directories: [include_directories(get_option('prefix') / get_option('includedir'))], link_args: ['-ldl'])
+    cfg_var.set('HAVE_RESVG', '1')
+endif
+
 openslide_dep = dependency('openslide', version: '>=3.3.0', required: get_option('openslide'))
 openslide_module = false
 if openslide_dep.found()
@@ -669,6 +679,7 @@ build_summary = {
      'PDF load with PDFium': [pdfium_dep.found()],
      'PDF load with poppler-glib': [libpoppler_found, ' (dynamic module: ', libpoppler_module, ')'],
      'SVG load with librsvg': [librsvg_found],
+     'SVG load with libresvg': [libresvg_found],
      'EXR load with OpenEXR': [openexr_dep.found()],
      'OpenSlide load': [openslide_dep.found(), ' (dynamic module: ', openslide_module, ')'],
      'Matlab load with libmatio': [matio_dep.found()],

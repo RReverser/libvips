@@ -81,6 +81,29 @@
 #include <cairo.h>
 #include <librsvg/rsvg.h>
 
+/* A handy #define for we-will-handle-svgz.
+ */
+#if LIBRSVG_CHECK_FEATURE(SVGZ)
+#define HANDLE_SVGZ
+#endif
+
+#elif defined(HAVE_RESVG)
+
+#include <resvg.h>
+#define HANDLE_SVGZ
+
+#endif
+
+#if defined(HAVE_RSVG) || defined(HAVE_RESVG)
+
+#ifndef HAVE_ZLIB
+#undef HANDLE_SVGZ
+#endif
+
+#ifdef HANDLE_SVGZ
+#include <zlib.h>
+#endif
+
 /* Render SVGs with tiles this size. They need to be pretty big to limit 
  * overcomputation.
  */
@@ -89,16 +112,6 @@
 /* The <svg tag must appear within this many bytes of the start of the file.
  */
 #define SVG_HEADER_SIZE (1000)
-
-/* A handy #define for we-will-handle-svgz.
- */
-#if LIBRSVG_CHECK_FEATURE(SVGZ) && defined(HAVE_ZLIB)
-#define HANDLE_SVGZ
-#endif
-
-#ifdef HANDLE_SVGZ
-#include <zlib.h>
-#endif
 
 typedef struct _VipsForeignLoadSvg {
 	VipsForeignLoad parent_object;
@@ -119,7 +132,12 @@ typedef struct _VipsForeignLoadSvg {
 	 */
 	gboolean unlimited;
 
+#ifdef HAVE_RSVG
 	RsvgHandle *page;
+#else
+	resvg_options *options;
+	resvg_render_tree *tree;
+#endif
 
 } VipsForeignLoadSvg;
 
@@ -308,7 +326,14 @@ vips_foreign_load_svg_dispose( GObject *gobject )
 {
 	VipsForeignLoadSvg *svg = (VipsForeignLoadSvg *) gobject;
 
+#ifdef HAVE_RSVG
 	VIPS_UNREF( svg->page );
+#else
+	resvg_options_destroy( svg->options );
+	if ( svg->tree ) {
+		resvg_tree_destroy( svg->tree );
+	}
+#endif
 
 	G_OBJECT_CLASS( vips_foreign_load_svg_parent_class )->
 		dispose( gobject );
@@ -328,6 +353,7 @@ vips_foreign_load_svg_get_flags( VipsForeignLoad *load )
 	return( VIPS_FOREIGN_PARTIAL );
 }
 
+#ifdef HAVE_RSVG
 #if LIBRSVG_CHECK_VERSION( 2, 52, 0 )
 /* Derived from `CssLength::to_user` in librsvg.
  * https://gitlab.gnome.org/GNOME/librsvg/-/blob/e6607c9ae8d8409d4efff6b12993717400b3356e/src/length.rs#L368
@@ -386,6 +412,7 @@ svg_css_length_to_pixels( RsvgLength length, double dpi )
 	return value;
 }
 #endif
+#endif
 
 static int
 vips_foreign_load_svg_get_natural_size( VipsForeignLoadSvg *svg, 
@@ -396,6 +423,7 @@ vips_foreign_load_svg_get_natural_size( VipsForeignLoadSvg *svg,
 	double width;
 	double height;
 
+#ifdef HAVE_RSVG
 #if LIBRSVG_CHECK_VERSION( 2, 52, 0 )
 
 	if( !rsvg_handle_get_intrinsic_size_in_pixels( svg->page, 
@@ -483,6 +511,11 @@ vips_foreign_load_svg_get_natural_size( VipsForeignLoadSvg *svg,
 }
 
 #endif /*LIBRSVG_CHECK_VERSION( 2, 52, 0 )*/
+#else /* HAVE_RSVG */
+	resvg_size size = resvg_get_image_size(svg->tree);
+	width = size.width;
+	height = size.height;
+#endif
 
 	/* width or height below 0.5 can't be rounded to 1.
 	 */
@@ -507,7 +540,11 @@ vips_foreign_load_svg_get_scaled_size( VipsForeignLoadSvg *svg,
 
 	/* Get dimensions with the default dpi.
 	 */
+#ifdef HAVE_RSVG
 	rsvg_handle_set_dpi( svg->page, 72.0 );
+#else
+	resvg_options_set_dpi(svg->options, 72.0);
+#endif
 	if( vips_foreign_load_svg_get_natural_size( svg, &width, &height ) )
 		return( -1 );
 
@@ -567,10 +604,6 @@ vips_foreign_load_svg_generate( VipsRegion *or,
 	const VipsObjectClass *class = VIPS_OBJECT_GET_CLASS( svg );
 	const VipsRect *r = &or->valid;
 
-	cairo_surface_t *surface;
-	cairo_t *cr;
-	int y;
-
 #ifdef DEBUG
 	printf( "vips_foreign_load_svg_generate: %p \n     "
 		"left = %d, top = %d, width = %d, height = %d\n", 
@@ -578,9 +611,14 @@ vips_foreign_load_svg_generate( VipsRegion *or,
 		r->left, r->top, r->width, r->height ); 
 #endif /*DEBUG*/
 
-	/* rsvg won't always paint the background.
+	/* SVG won't always paint the background.
 	 */
 	vips_region_black( or ); 
+
+#ifdef HAVE_RSVG
+	cairo_surface_t *surface;
+	cairo_t *cr;
+	int y;
 
 	surface = cairo_image_surface_create_for_data( 
 		VIPS_REGION_ADDR( or, r->left, r->top ), 
@@ -644,6 +682,38 @@ vips_foreign_load_svg_generate( VipsRegion *or,
                 vips__premultiplied_bgra2rgba( 
 			(guint32 *) VIPS_REGION_ADDR( or, r->left, r->top + y ),
 			r->width ); 
+#else
+
+	guint8 *pixmap = VIPS_REGION_ADDR( or, r->left, r->top );
+
+	resvg_render(
+		svg->tree,
+		(resvg_fit_to) { .type = RESVG_FIT_TO_TYPE_ORIGINAL },
+		(resvg_transform) {
+			.a = svg->cairo_scale,
+			.d = svg->cairo_scale,
+			.e = -r->left,
+			.f = -r->top,
+		},
+		r->width,
+		r->height,
+		(char *) pixmap
+	);
+
+	// Just unpremultiply.
+	for (int i = 0; i < r->width * r->height; i++) {
+		guint8 *ptr = &pixmap[i * 4];
+		guint8 a = ptr[3];
+		// Skip transparent and fully opaque pixels.
+		if ( a != 0 && a != 255 ) {
+			// Any compiler will unroll it.
+			for (int i = 0; i < 3; i++) {
+				ptr[i] = 255 * ptr[i] / a;
+			}
+		}
+	}
+
+#endif
 
 	return( 0 ); 
 }
@@ -731,8 +801,12 @@ vips_foreign_load_svg_init( VipsForeignLoadSvg *svg )
 	svg->dpi = 72.0;
 	svg->scale = 1.0;
 	svg->cairo_scale = 1.0;
+#ifdef HAVE_RESVG
+	svg->options = resvg_options_create();
+#endif
 }
 
+#ifdef HAVE_RSVG
 typedef struct _VipsForeignLoadSvgSource {
 	VipsForeignLoadSvg parent_object;
 
@@ -783,7 +857,6 @@ vips_foreign_load_svg_source_header( VipsForeignLoad *load )
 		return( -1 ); 
 	}
 	g_object_unref( gstream );
-
 	return( vips_foreign_load_svg_header( load ) );
 }
 
@@ -833,6 +906,7 @@ static void
 vips_foreign_load_svg_source_init( VipsForeignLoadSvgSource *source )
 {
 }
+#endif
 
 typedef struct _VipsForeignLoadSvgFile {
 	VipsForeignLoadSvg parent_object;
@@ -864,6 +938,7 @@ vips_foreign_load_svg_file_header( VipsForeignLoad *load )
 {
 	VipsForeignLoadSvg *svg = (VipsForeignLoadSvg *) load;
 	VipsForeignLoadSvgFile *file = (VipsForeignLoadSvgFile *) load;
+#ifdef HAVE_RSVG
 	RsvgHandleFlags flags = svg->unlimited ? RSVG_HANDLE_FLAG_UNLIMITED : 0;
 
 	GError *error = NULL;
@@ -878,7 +953,11 @@ vips_foreign_load_svg_file_header( VipsForeignLoad *load )
 		return( -1 ); 
 	}
 	g_object_unref( gfile );
-
+#else
+	if (resvg_parse_tree_from_file(file->filename, svg->options, &svg->tree)) {
+		return (-1);
+	}
+#endif
 	VIPS_SETSTR( load->out->filename, file->filename );
 
 	return( vips_foreign_load_svg_header( load ) );
@@ -888,7 +967,7 @@ static const char *vips_foreign_svg_suffs[] = {
 	".svg",
 	/* librsvg supports svgz directly, no need to check for zlib here.
 	 */
-#if LIBRSVG_CHECK_FEATURE(SVGZ)
+#ifdef HANDLE_SVGZ
 	".svgz",
 	".svg.gz",
 #endif
@@ -948,6 +1027,7 @@ vips_foreign_load_svg_buffer_header( VipsForeignLoad *load )
 	VipsForeignLoadSvg *svg = (VipsForeignLoadSvg *) load;
 	VipsForeignLoadSvgBuffer *buffer = 
 		(VipsForeignLoadSvgBuffer *) load;
+#ifdef HAVE_RSVG
 	RsvgHandleFlags flags = svg->unlimited ? RSVG_HANDLE_FLAG_UNLIMITED : 0;
 
 	GError *error = NULL;
@@ -963,7 +1043,11 @@ vips_foreign_load_svg_buffer_header( VipsForeignLoad *load )
 		return( -1 ); 
 	}
 	g_object_unref( gstream );
-
+#else
+	if (resvg_parse_tree_from_data(buffer->buf->data, buffer->buf->length, svg->options, &svg->tree)) {
+		return (-1);
+	}
+#endif
 	return( vips_foreign_load_svg_header( load ) );
 }
 
@@ -1146,4 +1230,3 @@ vips_svgload_source( VipsSource *source, VipsImage **out, ... )
 
 	return( result );
 }
-

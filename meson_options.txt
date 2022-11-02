@@ -203,6 +203,11 @@ option('rsvg',
   value: 'auto',
   description: 'Build with rsvg')
 
+option('resvg',
+  type: 'feature',
+  value: 'auto',
+  description: 'Build with resvg')
+
 option('spng',
   type: 'feature',
   value: 'auto',

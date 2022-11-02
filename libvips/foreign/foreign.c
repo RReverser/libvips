@@ -3012,7 +3012,7 @@ vips_foreign_operation_init( void )
 	vips_foreign_load_pdf_source_get_type(); 
 #endif /*HAVE_PDFIUM*/
 
-#ifdef HAVE_RSVG
+#if defined(HAVE_RSVG) || defined(HAVE_RESVG)
 	vips_foreign_load_svg_file_get_type(); 
 	vips_foreign_load_svg_buffer_get_type(); 
 	vips_foreign_load_svg_source_get_type(); 
